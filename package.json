@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun --watch dev-server.ts",
     "start": "bun dev-server.ts",
-    "build": "bun build ./node_modules/@vercel/analytics/dist/index.mjs --outfile=web/analytics.js --minify --format=esm"
+    "build:analytics": "bun build ./node_modules/@vercel/analytics/dist/index.mjs --outfile=web/analytics.js --minify --format=esm"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
