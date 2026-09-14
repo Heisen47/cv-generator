@@ -358,7 +358,9 @@ function renderResults(data) {
   keywordsCount.textContent = keywordsLen;
 
   // Tab 1: Formatted Document
-  documentPaper.innerHTML = data.optimizedHtml || '<p>No preview available.</p>';
+  state.originalHtml = data.optimizedHtml || '<p>No preview available.</p>';
+  documentPaper.innerHTML = state.originalHtml;
+  toggleEditMode(false);
 
   // Tab 2: Enhancements Diff
   changesList.innerHTML = '';
@@ -397,9 +399,125 @@ function renderResults(data) {
   }
 }
 
-// Export Handlers
+// Edit Mode Manager
+function toggleEditMode(enable) {
+  state.isEditing = enable;
+  if (enable) {
+    documentPaper.contentEditable = 'true';
+    documentPaper.classList.add('is-editing');
+    editNoticeBanner.classList.remove('hidden');
+    editToggleBtn.classList.add('active');
+    const span = editToggleBtn.querySelector('span');
+    if (span) span.textContent = 'Done Editing';
+  } else {
+    documentPaper.contentEditable = 'false';
+    documentPaper.classList.remove('is-editing');
+    editNoticeBanner.classList.add('hidden');
+    editToggleBtn.classList.remove('active');
+    const span = editToggleBtn.querySelector('span');
+    if (span) span.textContent = 'Edit CV';
+  }
+}
+
+// Convert Live Edited DOM to Clean Markdown
+function getEditedMarkdown() {
+  const paper = document.getElementById('documentPaper');
+  if (!paper) return (state.resultData && state.resultData.optimizedMarkdown) || '';
+
+  function processNode(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return '';
+    }
+
+    const tag = node.tagName.toUpperCase();
+
+    if (tag === 'H1') {
+      return '# ' + node.textContent.trim() + '\n\n';
+    }
+    if (tag === 'H2') {
+      return '## ' + node.textContent.trim() + '\n\n';
+    }
+    if (tag === 'H3') {
+      return '### ' + node.textContent.trim() + '\n\n';
+    }
+    if (tag === 'UL') {
+      let ulText = '';
+      node.childNodes.forEach(child => {
+        if (child.tagName && child.tagName.toUpperCase() === 'LI') {
+          ulText += '- ' + processInline(child).trim() + '\n';
+        }
+      });
+      return ulText + '\n';
+    }
+    if (tag === 'P') {
+      const text = processInline(node).trim();
+      return text ? text + '\n\n' : '';
+    }
+    if (tag === 'LI') {
+      return '- ' + processInline(node).trim() + '\n';
+    }
+
+    let text = '';
+    node.childNodes.forEach(child => {
+      text += processNode(child);
+    });
+    return text;
+  }
+
+  function processInline(el) {
+    let result = '';
+    el.childNodes.forEach(child => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        result += child.textContent;
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        const ctag = child.tagName.toUpperCase();
+        if (ctag === 'STRONG' || ctag === 'B') {
+          result += '**' + processInline(child) + '**';
+        } else if (ctag === 'EM' || ctag === 'I') {
+          result += '*' + processInline(child) + '*';
+        } else if (ctag === 'A') {
+          const href = child.getAttribute('href') || '';
+          const linkText = processInline(child);
+          result += href.startsWith('mailto:') ? linkText : `[${linkText}](${href})`;
+        } else if (ctag === 'BR') {
+          result += '\n';
+        } else {
+          result += processInline(child);
+        }
+      }
+    });
+    return result;
+  }
+
+  const generated = processNode(paper).trim();
+  return generated.length > 20 ? generated : ((state.resultData && state.resultData.optimizedMarkdown) || '');
+}
+
+function getEditedText() {
+  return documentPaper.innerText.trim();
+}
+
+function downloadBase64Docx(base64) {
+  const binaryStr = atob(base64);
+  const len = binaryStr.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+  const blob = new Blob([bytes.buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  });
+  triggerDownload(blob, getExportFileName('docx'));
+}
+
+// Export Handlers (Fully Live-Synced with User Edits)
 function exportAsPdf() {
   if (!state.resultData) return;
+  if (state.isEditing) toggleEditMode(false);
+
   const element = document.getElementById('documentPaper');
   if (window.html2pdf) {
     const originalText = downloadPdfBtn.textContent;
@@ -428,51 +546,56 @@ function exportAsPdf() {
   }
 }
 
-function exportAsDocx() {
+async function exportAsDocx() {
   if (!state.resultData) return;
+  if (state.isEditing) toggleEditMode(false);
 
-  if (state.resultData.docxBase64) {
-    const binaryStr = atob(state.resultData.docxBase64);
-    const len = binaryStr.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
-    const blob = new Blob([bytes.buffer], {
-      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  const currentMarkdown = getEditedMarkdown();
+  const originalText = downloadDocxBtn.textContent;
+  downloadDocxBtn.textContent = 'Generating DOCX...';
+
+  try {
+    const res = await fetch('/api/export-docx', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markdown: currentMarkdown })
     });
-    triggerDownload(blob, getExportFileName('docx'));
-    return;
+    if (res.ok) {
+      const data = await res.json();
+      if (data.docxBase64) {
+        downloadBase64Docx(data.docxBase64);
+        downloadDocxBtn.textContent = originalText;
+        return;
+      }
+    }
+  } catch (err) {
+    console.warn('Live DOCX export failed, using fallback:', err);
   }
 
-  // Fallback if docxBase64 is unavailable
-  const htmlContent = `
-    <!DOCTYPE html>
-    <html><head><meta charset='utf-8'></head><body>
-      ${state.resultData.optimizedHtml}
-    </body></html>
-  `;
-  const blob = new Blob(['\ufeff', htmlContent], {
-    type: 'application/msword'
-  });
-  triggerDownload(blob, getExportFileName('doc'));
+  // Fallback to initial base64 if live endpoint is unavailable
+  if (state.resultData.docxBase64) {
+    downloadBase64Docx(state.resultData.docxBase64);
+  }
+  downloadDocxBtn.textContent = originalText;
 }
 
 function exportAsMarkdown() {
   if (!state.resultData) return;
-  const blob = new Blob([state.resultData.optimizedMarkdown], { type: 'text/markdown;charset=utf-8' });
+  const md = getEditedMarkdown();
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
   triggerDownload(blob, getExportFileName('md'));
 }
 
 function exportAsPlainText() {
   if (!state.resultData) return;
-  const blob = new Blob([state.resultData.optimizedText], { type: 'text/plain;charset=utf-8' });
+  const text = getEditedText();
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
   triggerDownload(blob, getExportFileName('txt'));
 }
 
 function copyToClipboard() {
   if (!state.resultData) return;
-  const text = state.resultData.optimizedText || state.resultData.optimizedMarkdown;
+  const text = getEditedText();
   navigator.clipboard.writeText(text).then(() => {
     const original = copyClipboardBtn.textContent;
     copyClipboardBtn.textContent = 'Copied!';
