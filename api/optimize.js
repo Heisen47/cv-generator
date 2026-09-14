@@ -127,6 +127,33 @@ function markdownToHtml(md) {
   return '<div class="cv-document">' + processed.join('\n') + '</div>';
 }
 
+function cleanRoleFromCvBody(markdown, targetTitle, targetRole) {
+  if (!markdown) return markdown;
+  const titles = [targetTitle, targetRole]
+    .filter(Boolean)
+    .map(t => t.trim())
+    .filter(t => t.length > 2);
+
+  let cleaned = markdown;
+  for (const title of titles) {
+    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Remove inline "**Title** | " or "**Title** • " or "**Title** - "
+    cleaned = cleaned.replace(new RegExp(`\\*\\*${escaped}\\*\\*\\s*[|•\\-–—/]\\s*`, 'gi'), '');
+    cleaned = cleaned.replace(new RegExp(`\\*${escaped}\\*\\s*[|•\\-–—/]\\s*`, 'gi'), '');
+    cleaned = cleaned.replace(new RegExp(`${escaped}\\s*[|•\\-–—/]\\s*`, 'gi'), '');
+
+    // Remove standalone role subtitle line right after candidate name
+    cleaned = cleaned.replace(new RegExp(`^(#+\\s+[^\\n]+\\n+)\\s*\\*\\*${escaped}\\*\\*\\s*\\n+`, 'gim'), '$1');
+    cleaned = cleaned.replace(new RegExp(`^(#+\\s+[^\\n]+\\n+)\\s*\\*${escaped}\\*\\s*\\n+`, 'gim'), '$1');
+    cleaned = cleaned.replace(new RegExp(`^(#+\\s+[^\\n]+\\n+)\\s*${escaped}\\s*\\n+`, 'gim'), '$1');
+  }
+
+  // Clean leading separators on contact lines if any were left behind
+  cleaned = cleaned.replace(/^(#+\\s+[^\\n]+\\n+)\\s*[|•\\-–—/]\\s*/gim, '$1');
+
+  return cleaned;
+}
+
 export async function processOptimization({ cvText, jobDescription, targetRole, apiKey }) {
   if (!apiKey) {
     throw new Error('GROQ_API_KEY environment variable is not configured.');
@@ -165,7 +192,7 @@ Take the candidate's original CV, the target Job Description, and the Gap Analys
 CRITICAL CONSTRAINTS:
 1. ZERO FABRICATION: Retain truthful career history, dates, degrees, company names, and core responsibilities. Never invent untrue achievements or jobs.
 2. PRESERVE CONTACTS & HYPERLINKS: Retain all contact info, emails, phone numbers, and profile links (LinkedIn, GitHub, Portfolio, Website). Format all hyperlinks cleanly as Markdown links: [Label](https://...) or raw URLs.
-3. STRATEGIC POSITIONING: Tailor the Professional Summary and Subtitle specifically for the target role.
+3. STRATEGIC POSITIONING: Tailor the Professional Summary specifically for the target role. NO ROLE SUBTITLE: Do NOT put the target role / job title anywhere in the CV header or as a subtitle under candidate's name (do NOT write '**Target Role**' or '**Software Engineer** | ...'). Keep the header clean: candidate name, followed directly by contact details (location, email, phone, links).
 4. HIGH IMPACT BULLETS: Rewrite experience bullet points using strong action verbs and the Google XYZ format ("Accomplished [X] as measured by [Y] by doing [Z]"). Weave in the target keywords seamlessly.
 5. CLEAN MARKDOWN: The optimized CV MUST be formatted in standard Markdown with standard headings (# Header, ## Summary, ## Skills, ## Experience, ## Education, ## Projects/Certifications).
 6. CHANGE TRACKING: Document 5 to 10 significant bullet enhancements in the changes array.
@@ -183,14 +210,15 @@ Return strictly valid JSON with this schema:
       "keywords_added": ["term1"]
     }
   ],
-  "optimized_markdown": "# Candidate Name\\n**Target Role** | Contact Info | [LinkedIn](https://...) | email@example.com\\n\\n## Professional Summary\\n...\\n\\n## Core Competencies\\n...\\n\\n## Professional Experience\\n...\\n\\n## Education\\n..."
+  "optimized_markdown": "# Candidate Name\\nLocation | email@example.com | +1 234 567 8900 | [LinkedIn](https://...) | [Portfolio](https://...)\\n\\n## Professional Summary\\n...\\n\\n## Core Competencies\\n...\\n\\n## Professional Experience\\n...\\n\\n## Education\\n..."
 }`;
 
   const stage2UserMsg = `ORIGINAL CV:\n${cvText}\n\nTARGET JOB DESCRIPTION:\n${jobDescription}\n\nKEYWORDS TO WEAVE IN:\n${keywords.join(', ')}\n\nTARGET POSITIONING:\n${stage1Result.strategic_advice || ''}`;
 
   const stage2Result = await callGroq(apiKey, stage2SystemPrompt, stage2UserMsg, 0.3, 3500, process.env.GROQ_STAGE2_MODEL || 'openai/gpt-oss-120b');
 
-  const markdown = stage2Result.optimized_markdown || '';
+  const rawMarkdown = stage2Result.optimized_markdown || '';
+  const markdown = cleanRoleFromCvBody(rawMarkdown, stage2Result.target_title, targetRole);
   const html = markdownToHtml(markdown);
   const plainText = markdown.replace(/[#*`_]/g, '');
 

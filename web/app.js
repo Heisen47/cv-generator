@@ -617,11 +617,7 @@ function triggerDownload(blob, filename) {
 }
 
 function getExportFileName(ext) {
-  const role = (state.resultData && state.resultData.targetTitle)
-    ? state.resultData.targetTitle.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()
-    : 'optimized';
-  const date = new Date().toISOString().split('T')[0];
-  return `cv_${role}_${date}.${ext}`;
+  return `resume.${ext}`;
 }
 
 function escapeHtml(str) {
