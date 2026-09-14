@@ -1,0 +1,17 @@
+FROM n8nio/n8n:latest
+
+USER root
+RUN apk add --no-cache curl wget bash
+
+USER node
+
+ENV N8N_PORT=7860
+ENV N8N_HOST=0.0.0.0
+ENV N8N_PROTOCOL=https
+ENV GENERIC_TIMEZONE=Asia/Kolkata
+ENV EXECUTIONS_DATA_PRUNE=true
+ENV EXECUTIONS_DATA_MAX_AGE=168
+
+EXPOSE 7860
+
+CMD ["n8n", "start"]

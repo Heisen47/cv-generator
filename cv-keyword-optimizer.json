@@ -3,204 +3,254 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## CV Keyword Optimizer\n\n1. User provides Google Docs CV link + JD\n2. Copies original doc (preserves formatting)\n3. AI generates find/replace pairs for experience bullets\n4. Applies replacements via Docs API\n5. Output: new Google Doc link",
-        "height": 300, "width": 460
+        "content": "## CV Keyword Optimizer (Zero-OAuth / Webhook API)\n\n1. Webhook receives CV text + JD from Web UI\n2. AI Brain Stage 1 (Groq): JD Gap Analysis & ATS Keyword Extraction\n3. AI Brain Stage 2 (Groq): Executive Resume Re-write & Optimization\n4. Formatter: Generates Markdown, ATS-styled HTML, and Plain Text\n5. Webhook Response: Returns multi-format documents and diff log to Web UI",
+        "height": 280,
+        "width": 520
       },
-      "id": "note-overview", "name": "Overview",
-      "type": "n8n-nodes-base.stickyNote", "typeVersion": 1,
-      "position": [200, 200]
+      "id": "note-overview",
+      "name": "Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 200]
     },
     {
       "parameters": {
-        "formTitle": "CV Keyword Optimizer",
-        "formDescription": "Paste your Google Docs CV link and the job description.",
-        "formFields": {
-          "values": [
-            { "fieldLabel": "Google Docs CV Link", "fieldType": "text", "requiredField": true, "placeholder": "https://docs.google.com/document/d/YOUR_DOC_ID/edit" },
-            { "fieldLabel": "Job Description", "fieldType": "textarea", "requiredField": true, "placeholder": "Paste the full job description here..." }
+        "httpMethod": "POST",
+        "path": "optimize-cv",
+        "responseMode": "responseNode",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              { "name": "Access-Control-Allow-Origin", "value": "*" },
+              { "name": "Access-Control-Allow-Methods", "value": "POST, OPTIONS, GET" },
+              { "name": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
+            ]
+          }
+        }
+      },
+      "id": "node-webhook",
+      "name": "CV Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 480],
+      "webhookId": "optimize-cv"
+    },
+    {
+      "parameters": {
+        "functionCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const body = item.json.body || item.json;\n  const cvText = (body.cvText || body.cv_text || '').trim();\n  const jobDescription = (body.jobDescription || body.job_description || '').trim();\n  const targetRole = (body.targetRole || body.target_role || 'Target Role').trim();\n  const candidateName = (body.candidateName || body.candidate_name || '').trim();\n\n  if (!cvText || cvText.length < 40) {\n    throw new Error('CV text is required and must contain at least 40 characters.');\n  }\n  if (!jobDescription || jobDescription.length < 30) {\n    throw new Error('Job description is required and must contain at least 30 characters.');\n  }\n\n  results.push({\n    json: {\n      cvText,\n      jobDescription,\n      targetRole,\n      candidateName\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "node-validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [480, 480]
+    },
+    {
+      "parameters": {
+        "functionCode": "const item = $input.first().json;\n\nconst SYSTEM_PROMPT = `You are an elite ATS recruitment specialist and career strategist. \nAnalyze the candidate's existing CV and target Job Description.\n\nPerform a strict gap analysis:\n1. Extract essential hard skills, programming languages, platforms, and methodologies explicitly demanded by the JD.\n2. Identify soft skills and leadership indicators emphasized in the JD.\n3. Identify missing or weakly phrased terms in the CV that can be enhanced.\n4. Determine the primary job title and key competency themes.\n\nReturn strictly valid JSON with this schema (no markdown, no code fences, no conversational text):\n{\n  \"target_role\": \"Target Job Title\",\n  \"initial_ats_score\": 60,\n  \"high_priority_keywords\": [\"keyword1\", \"keyword2\"],\n  \"medium_priority_keywords\": [\"keyword3\", \"keyword4\"],\n  \"recommended_competency_categories\": {\n    \"Core Skills\": [\"skill1\", \"skill2\"],\n    \"Tools & Technologies\": [\"tool1\", \"tool2\"],\n    \"Methodologies & Domain\": [\"method1\", \"method2\"]\n  },\n  \"strategic_advice\": \"1-2 sentence core positioning strategy for this candidate\"\n}`;\n\nconst userMessage = `CANDIDATE CV:\\n${item.cvText}\\n\\nTARGET JOB DESCRIPTION:\\n${item.jobDescription}\\n\\nTARGET ROLE HINT: ${item.targetRole}`;\n\nconst payload = {\n  model: \"openai/gpt-oss-120b\",\n  temperature: 0.2,\n  max_tokens: 2000,\n  response_format: { type: \"json_object\" },\n  messages: [\n    { role: \"system\", content: SYSTEM_PROMPT },\n    { role: \"user\", content: userMessage }\n  ]\n};\n\nreturn [{\n  json: {\n    ...item,\n    stage1Payload: JSON.stringify(payload)\n  }\n}];"
+      },
+      "id": "node-build-stage1-prompt",
+      "name": "Build Stage 1 Prompt",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [720, 480]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.GROQ_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
           ]
         },
-        "options": {}
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.stage1Payload }}",
+        "options": { "timeout": 120000 }
       },
-      "id": "node-form", "name": "CV Input Form",
-      "type": "n8n-nodes-base.formTrigger", "typeVersion": 2,
-      "position": [800, 480], "webhookId": "cv-keyword-optimizer-form"
+      "id": "node-groq-stage1",
+      "name": "Groq - AI Gap Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [960, 480],
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "functionCode": "const items = $input.all();\nconst results = [];\nfor (const item of items) {\n  const cvLink = item.json['Google Docs CV Link'] || item.json['google_docs_cv_link'] || '';\n  const jobDescription = item.json['Job Description'] || item.json['job_description'] || '';\n  let documentId = '';\n  const match = cvLink.match(/\\/document\\/d\\/([a-zA-Z0-9_-]+)/);\n  if (match) { documentId = match[1]; }\n  else if (/^[a-zA-Z0-9_-]{20,}$/.test(cvLink.trim())) { documentId = cvLink.trim(); }\n  if (!documentId) throw new Error('Invalid Google Docs link.');\n  if (!jobDescription || jobDescription.trim().length < 20) throw new Error('Job description too short.');\n  results.push({ json: { documentId, jobDescription: jobDescription.trim(), originalLink: cvLink } });\n}\nreturn results;"
+        "functionCode": "const item = $input.first().json;\nlet analysis = {};\nlet error = '';\n\nif (item.error || item.errorMessage || item.statusCode >= 400) {\n  error = item.error || item.errorMessage || ('HTTP Error ' + item.statusCode);\n}\n\ntry {\n  if (!error && item.choices && item.choices.length > 0) {\n    let text = item.choices[0].message.content || '';\n    text = text.replace(/<think>[\\s\\S]*?<\\/think>/gi, '').trim();\n    text = text.replace(/^```[a-z]*\\n?/gm, '').replace(/```$/gm, '').trim();\n    analysis = JSON.parse(text);\n  }\n} catch (e) {\n  error = 'Stage 1 parsing failed: ' + e.message;\n}\n\nlet prevData = {};\ntry {\n  prevData = $('Validate Input').first().json;\n} catch (e) {}\n\nreturn [{\n  json: {\n    ...prevData,\n    analysis,\n    errorStage1: error\n  }\n}];"
       },
-      "id": "node-extract-id", "name": "Extract Doc ID",
-      "type": "n8n-nodes-base.function", "typeVersion": 1,
-      "position": [1040, 480]
+      "id": "node-parse-stage1",
+      "name": "Parse Stage 1",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1200, 480]
     },
     {
       "parameters": {
-        "operation": "get",
-        "documentURL": "={{ $json.documentId }}",
-        "simple": false
+        "functionCode": "const item = $input.first().json;\nconst analysis = item.analysis || {};\nconst keywords = [...(analysis.high_priority_keywords || []), ...(analysis.medium_priority_keywords || [])];\n\nconst SYSTEM_PROMPT = `You are a world-class executive CV writer and ATS optimization brain.\nYour task is to take the candidate's original CV, the target Job Description, and the Gap Analysis keywords, and produce a fully tailored, ATS-compliant CV.\n\nCRITICAL CONSTRAINTS:\n1. ZERO FABRICATION: Retain truthful career history, dates, degrees, company names, and core responsibilities. Never invent jobs, institutions, or untrue technical capabilities.\n2. STRATEGIC POSITIONING: Tailor the Professional Summary and Subtitle specifically for the target role.\n3. HIGH IMPACT BULLETS: Rewrite experience bullet points using strong action verbs and the Google XYZ format (\"Accomplished [X] as measured by [Y] by doing [Z]\"). Weave in the target keywords seamlessly.\n4. CATEGORIZED SKILLS: Organize technical and domain skills to match the nomenclature used in the JD.\n5. CLEAN MARKDOWN: The optimized CV MUST be formatted in clean, standard Markdown with standard headings (# Header, ## Summary, ## Skills, ## Experience, ## Education, ## Projects/Certifications).\n6. CHANGE TRACKING: Document 5 to 10 significant bullet enhancements in the changes array.\n\nReturn strictly valid JSON with this schema (no markdown fences, no conversational text):\n{\n  \"target_title\": \"Job Title\",\n  \"projected_ats_score\": 94,\n  \"keywords_injected\": [\"keyword1\", \"keyword2\"],\n  \"changes\": [\n    {\n      \"section\": \"Experience - Company Name\",\n      \"original\": \"Original CV bullet or excerpt\",\n      \"updated\": \"Enhanced bullet with action verbs & keywords\",\n      \"keywords_added\": [\"term1\"]\n    }\n  ],\n  \"optimized_markdown\": \"# Candidate Name\\n**Target Role** | Contact Info\\n\\n## Professional Summary\\n...\\n\\n## Core Competencies\\n...\\n\\n## Professional Experience\\n...\\n\\n## Education\\n...\"\n}`;\n\nconst userMessage = `ORIGINAL CV:\\n${item.cvText}\\n\\nTARGET JOB DESCRIPTION:\\n${item.jobDescription}\\n\\nKEYWORDS TO WEAVE IN:\\n${keywords.join(', ')}\\n\\nTARGET POSITIONING:\\n${analysis.strategic_advice || ''}`;\n\nconst payload = {\n  model: \"openai/gpt-oss-120b\",\n  temperature: 0.3,\n  max_tokens: 3500,\n  response_format: { type: \"json_object\" },\n  messages: [\n    { role: \"system\", content: SYSTEM_PROMPT },\n    { role: \"user\", content: userMessage }\n  ]\n};\n\nreturn [{\n  json: {\n    ...item,\n    stage2Payload: JSON.stringify(payload)\n  }\n}];"
       },
-      "id": "node-read-cv", "name": "Read CV from Google Docs",
-      "type": "n8n-nodes-base.googleDocs", "typeVersion": 2,
-      "position": [1280, 480],
-      "credentials": { "googleDocsOAuth2Api": { "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID", "name": "Google Docs account" } }
-    },
-    {
-      "parameters": {
-        "functionCode": "const items = $input.all();\nconst results = [];\nfor (const item of items) {\n  const doc = item.json;\n  let cvText = '';\n  if (doc.body && doc.body.content) {\n    for (const element of doc.body.content) {\n      if (element.paragraph && element.paragraph.elements) {\n        for (const el of element.paragraph.elements) {\n          if (el.textRun && el.textRun.content) cvText += el.textRun.content;\n        }\n      }\n      if (element.table) {\n        for (const row of (element.table.tableRows || [])) {\n          for (const cell of (row.tableCells || [])) {\n            if (cell.content) {\n              for (const ce of cell.content) {\n                if (ce.paragraph && ce.paragraph.elements) {\n                  for (const el of ce.paragraph.elements) {\n                    if (el.textRun && el.textRun.content) cvText += el.textRun.content;\n                  }\n                }\n              }\n            }\n            cvText += '\\t';\n          }\n          cvText += '\\n';\n        }\n      }\n    }\n  }\n  if (!cvText && doc.text) cvText = doc.text;\n  if (!cvText && doc.content) cvText = typeof doc.content === 'string' ? doc.content : JSON.stringify(doc.content);\n  let prevData = {};\n  try { prevData = $('Extract Doc ID').first().json; } catch(e) {}\n  results.push({ json: { cvText: cvText.trim(), documentId: prevData.documentId || '', jobDescription: prevData.jobDescription || '', originalLink: prevData.originalLink || '', docTitle: doc.title || 'Untitled CV' } });\n}\nreturn results;"
-      },
-      "id": "node-extract-text", "name": "Extract CV Text",
-      "type": "n8n-nodes-base.function", "typeVersion": 1,
-      "position": [1520, 480]
-    },
-    {
-      "parameters": {
-        "functionCode": "const items = $input.all();\nconst results = [];\nconst SYSTEM_PROMPT = `You are an expert ATS keyword analyst. Analyze the job description and the candidate's CV, then extract the most impactful keywords to inject.\n\nThink step by step:\n1. Read the JD carefully. Identify MUST-HAVE skills, tools, methodologies, and domain terms.\n2. Read the CV. Identify which JD keywords are MISSING or could replace weaker synonyms.\n3. Rank keywords by ATS impact: exact JD matches score highest.\n4. For each keyword, identify WHICH CV bullet point it fits most naturally into.\n\nReturn ONLY a JSON object with this structure (no markdown, no explanation):\n{\"keywords\": [{\"keyword\": \"exact term from JD\", \"priority\": \"high|medium\", \"target_bullet\": \"first 10 words of the CV bullet where this fits best\", \"reason\": \"brief reason\"}]}\n\nRules:\n- Extract 10-20 keywords max\n- Only keywords that genuinely relate to the candidate's existing experience\n- Never suggest keywords that would require fabricating new experience\n- Include both technical skills and soft skills/methodologies from JD\n- Prefer exact JD phrasing over synonyms`;\n\nfor (const item of items) {\n  const cvText = item.json.cvText || '';\n  const jd = item.json.jobDescription || '';\n  const userMsg = 'CV:\\n' + cvText + '\\n\\nJOB DESCRIPTION:\\n' + jd;\n  const payload = { model: 'qwen3-32b', temperature: 0.6, max_tokens: 8000, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: userMsg }] };\n  results.push({ json: { ...item.json, keywordPayload: JSON.stringify(payload) } });\n}\nreturn results;"
-      },
-      "id": "node-build-kw-prompt", "name": "Build Keyword Extraction Prompt",
-      "type": "n8n-nodes-base.function", "typeVersion": 1,
-      "position": [1760, 480]
+      "id": "node-build-stage2-prompt",
+      "name": "Build Stage 2 Prompt",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1440, 480]
     },
     {
       "parameters": {
         "method": "POST",
         "url": "https://api.groq.com/openai/v1/chat/completions",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [
-          { "name": "Authorization", "value": "=Bearer {{ $env.GROQ_API_KEY }}" },
-          { "name": "Content-Type", "value": "application/json" }
-        ]},
-        "sendBody": true, "contentType": "raw", "rawContentType": "application/json",
-        "body": "={{ $json.keywordPayload }}",
-        "options": { "timeout": 120000 }
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.GROQ_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.stage2Payload }}",
+        "options": { "timeout": 180000 }
       },
-      "id": "node-groq-kw", "name": "Qwen3 - Extract Keywords",
-      "type": "n8n-nodes-base.httpRequest", "typeVersion": 3,
-      "position": [2000, 480], "onError": "continueRegularOutput"
+      "id": "node-groq-stage2",
+      "name": "Groq - AI CV Optimizer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1680, 480],
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "functionCode": "const items = $input.all();\nconst results = [];\nfor (const item of items) {\n  const data = item.json;\n  let keywords = [];\n  let error = '';\n  if (data.error || data.errorMessage || data.statusCode === 429 || data.statusCode >= 400) {\n    error = data.error || data.errorMessage || 'HTTP ' + data.statusCode;\n  }\n  try {\n    if (!error && data.choices && data.choices.length > 0) {\n      let content = data.choices[0].message.content || '';\n      content = content.replace(/<think>[\\s\\S]*?<\\/think>/gi, '').trim();\n      content = content.replace(/^```[a-z]*\\n?/gm, '').replace(/```$/gm, '').trim();\n      const parsed = JSON.parse(content);\n      keywords = parsed.keywords || parsed;\n      if (!Array.isArray(keywords)) throw new Error('Not an array');\n    }\n  } catch (e) { error = 'Failed to parse keyword response: ' + e.message; }\n  if (!error && keywords.length === 0) error = 'No keywords extracted';\n  let prevData = {};\n  try { prevData = $('Extract CV Text').first().json; } catch(e) {}\n  results.push({ json: { keywords, error, cvText: prevData.cvText || '', documentId: prevData.documentId || '', jobDescription: prevData.jobDescription || '', originalLink: prevData.originalLink || '', docTitle: prevData.docTitle || '' } });\n}\nreturn results;"
+        "functionCode": "const item = $input.first().json;\nlet parsed = {};\nlet error = '';\n\nif (item.error || item.errorMessage || item.statusCode >= 400) {\n  error = item.error || item.errorMessage || ('HTTP Error ' + item.statusCode);\n}\n\ntry {\n  if (!error && item.choices && item.choices.length > 0) {\n    let text = item.choices[0].message.content || '';\n    text = text.replace(/<think>[\\s\\S]*?<\\/think>/gi, '').trim();\n    text = text.replace(/^```[a-z]*\\n?/gm, '').replace(/```$/gm, '').trim();\n    parsed = JSON.parse(text);\n  }\n} catch (e) {\n  error = 'Stage 2 parsing failed: ' + e.message;\n}\n\nlet prev = {};\ntry {\n  prev = $('Parse Stage 1').first().json;\n} catch (e) {}\n\nconst markdown = parsed.optimized_markdown || '';\n\n// Generate clean ATS HTML\nfunction markdownToHtml(md) {\n  let html = md\n    .replace(/^# (.*$)/gim, '<h1 class=\"cv-name\">$1</h1>')\n    .replace(/^## (.*$)/gim, '<h2 class=\"cv-section-title\">$1</h2>')\n    .replace(/^### (.*$)/gim, '<h3 class=\"cv-item-title\">$1</h3>')\n    .replace(/\\*\\*(.*?)\\*\\*/gim, '<strong>$1</strong>')\n    .replace(/\\*(.*?)\\*/gim, '<em>$1</em>')\n    .replace(/^\\s*-\\s*(.*$)/gim, '<li class=\"cv-bullet\">$1</li>')\n    .replace(/\\n{2,}/gim, '</p><p>')\n    .replace(/\\n/gim, '<br>');\n  return '<div class=\"cv-document\"><p>' + html + '</p></div>';\n}\n\nconst html = markdownToHtml(markdown);\nconst plainText = markdown.replace(/[#*`_]/g, '');\n\nconst initialScore = (prev.analysis && prev.analysis.initial_ats_score) || 60;\nconst projectedScore = parsed.projected_ats_score || 92;\nconst keywordsInjected = parsed.keywords_injected || (prev.analysis && prev.analysis.high_priority_keywords) || [];\nconst changes = parsed.changes || [];\n\nreturn [{\n  json: {\n    status: error ? 'error' : 'success',\n    error: error || null,\n    data: error ? null : {\n      targetTitle: parsed.target_title || prev.targetRole || 'Target Role',\n      optimizedMarkdown: markdown,\n      optimizedHtml: html,\n      optimizedText: plainText,\n      stats: {\n        initialAtsScore: initialScore,\n        projectedAtsScore: projectedScore,\n        keywordsCount: keywordsInjected.length,\n        changesCount: changes.length\n      },\n      keywordsInjected: keywordsInjected,\n      changes: changes\n    }\n  }\n}];"
       },
-      "id": "node-parse-kw", "name": "Parse Keywords",
-      "type": "n8n-nodes-base.function", "typeVersion": 1,
-      "position": [2240, 480]
+      "id": "node-format-output",
+      "name": "Format Multi-Output",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1920, 480]
     },
     {
       "parameters": {
-        "functionCode": "const items = $input.all();\nconst results = [];\nconst SYSTEM_PROMPT = `You are an ATS resume editor. You receive a CV, a list of extracted keywords with target bullets, and must produce find-and-replace pairs.\n\nRULES:\n1. ONLY modify experience/work bullet points and skills lines. Do NOT touch: name, contact info, education, certifications, dates, company names, job titles, section headers.\n2. For each replacement: {\"find\": \"exact original text from CV\", \"replace\": \"enhanced text with keywords woven in\"}\n3. The \"find\" value MUST be an EXACT character-for-character substring from the CV. If wrong, the replacement silently fails.\n4. Weave in 1-3 keywords per bullet NATURALLY — no awkward stuffing.\n5. Keep bullet length similar. Do not bloat.\n6. Replace generic synonyms with exact JD terminology.\n7. Do NOT fabricate metrics, tools, or experiences.\n8. Produce 8-15 replacements max.\n9. You MAY include 1-2 skill line replacements to add related skills.\n10. Return ONLY a valid JSON array. No markdown, no explanation, no code fences.\n\nExample: [{\"find\":\"Built REST APIs for internal tools\",\"replace\":\"Built scalable REST APIs and microservices for internal tools using Node.js\"}]`;\n\nfor (const item of items) {\n  const cvText = item.json.cvText || '';\n  const keywords = item.json.keywords || [];\n  const kwSummary = keywords.map(k => k.keyword + ' (priority: ' + k.priority + ', target: ' + (k.target_bullet || 'any') + ')').join('\\n');\n  const userMsg = 'CV:\\n' + cvText + '\\n\\nKEYWORDS TO INJECT:\\n' + kwSummary;\n  const payload = { model: 'llama-3.3-70b-versatile', temperature: 0.3, max_tokens: 4000, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: userMsg }] };\n  results.push({ json: { ...item.json, aiPayload: JSON.stringify(payload) } });\n}\nreturn results;"
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "value2": "success"
+            }
+          ]
+        }
       },
-      "id": "node-build-replace-prompt", "name": "Build Replace Prompt",
-      "type": "n8n-nodes-base.function", "typeVersion": 1,
-      "position": [2480, 480]
+      "id": "node-check-status",
+      "name": "Check Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2160, 480]
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.groq.com/openai/v1/chat/completions",
-        "sendHeaders": true,
-        "headerParameters": { "parameters": [
-          { "name": "Authorization", "value": "=Bearer {{ $env.GROQ_API_KEY }}" },
-          { "name": "Content-Type", "value": "application/json" }
-        ]},
-        "sendBody": true, "contentType": "raw", "rawContentType": "application/json",
-        "body": "={{ $json.aiPayload }}",
-        "options": { "timeout": 120000 }
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              { "name": "Content-Type", "value": "application/json" },
+              { "name": "Access-Control-Allow-Origin", "value": "*" }
+            ]
+          }
+        }
       },
-      "id": "node-groq-replace", "name": "Llama3.3 - Generate Replacements",
-      "type": "n8n-nodes-base.httpRequest", "typeVersion": 3,
-      "position": [2720, 480], "onError": "continueRegularOutput"
+      "id": "node-respond-success",
+      "name": "Respond Webhook Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2400, 400]
     },
     {
       "parameters": {
-        "functionCode": "const items = $input.all();\nconst results = [];\nfor (const item of items) {\n  const data = item.json;\n  let replacements = [];\n  let error = '';\n  if (data.error || data.errorMessage || data.statusCode === 429 || data.statusCode >= 400) {\n    error = data.error || data.errorMessage || 'HTTP ' + data.statusCode;\n  }\n  try {\n    if (!error && data.choices && data.choices.length > 0) {\n      let content = data.choices[0].message.content || '';\n      content = content.replace(/^```[a-z]*\\n?/gm, '').replace(/```$/gm, '').trim();\n      replacements = JSON.parse(content);\n      if (!Array.isArray(replacements)) throw new Error('Not an array');\n      replacements = replacements.filter(r => r.find && r.replace && r.find.trim().length > 5 && r.find !== r.replace);\n      if (replacements.length === 0) error = 'AI returned no valid replacements';\n    }\n  } catch (e) { error = 'Failed to parse AI response: ' + e.message; }\n  if (!error && replacements.length === 0) error = 'AI returned empty response';\n  let prevData = {};\n  try { prevData = $('Parse Keywords').first().json; } catch(e) {}\n  results.push({ json: { replacements, error, keywords: prevData.keywords || [], documentId: prevData.documentId || '', jobDescription: prevData.jobDescription || '', originalLink: prevData.originalLink || '', docTitle: prevData.docTitle || 'Untitled CV' } });\n}\nreturn results;"
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'error', message: $json.error || 'Workflow execution failed.' }) }}",
+        "options": {
+          "responseCode": 500,
+          "responseHeaders": {
+            "entries": [
+              { "name": "Content-Type", "value": "application/json" },
+              { "name": "Access-Control-Allow-Origin", "value": "*" }
+            ]
+          }
+        }
       },
-      "id": "node-parse-ai", "name": "Parse AI Response",
-      "type": "n8n-nodes-base.function", "typeVersion": 1,
-      "position": [2960, 480]
-    },
-    {
-      "parameters": {
-        "conditions": { "string": [{ "value1": "={{ $json.error }}", "operation": "isEmpty" }] }
-      },
-      "id": "node-error-check", "name": "Check for Errors",
-      "type": "n8n-nodes-base.if", "typeVersion": 1,
-      "position": [2480, 480]
-    },
-    {
-      "parameters": {
-        "operation": "copy",
-        "fileId": { "__rl": true, "mode": "id", "value": "={{ $json.documentId }}" },
-        "name": "={{ $json.docTitle }} - Optimized - {{ new Date().toISOString().split('T')[0] }}",
-        "options": {}
-      },
-      "id": "node-copy-doc", "name": "Copy Original CV",
-      "type": "n8n-nodes-base.googleDrive", "typeVersion": 3,
-      "position": [2720, 400],
-      "credentials": { "googleDriveOAuth2Api": { "id": "REPLACE_WITH_YOUR_DRIVE_CREDENTIAL_ID", "name": "Google Drive account" } }
-    },
-    {
-      "parameters": {
-        "functionCode": "const items = $input.all();\nconst results = [];\nfor (const item of items) {\n  const copiedDocId = item.json.id || '';\n  if (!copiedDocId) throw new Error('Failed to copy document — no ID returned');\n  let prevData = {};\n  try { prevData = $('Parse AI Response').first().json; } catch(e) {}\n  const replacements = prevData.replacements || [];\n  const requests = replacements.map(r => ({\n    replaceAllText: {\n      containsText: { text: r.find, matchCase: true },\n      replaceText: r.replace\n    }\n  }));\n  const requestBody = JSON.stringify({ requests });\n  results.push({ json: { copiedDocId, requestBody, replacementCount: requests.length } });\n}\nreturn results;"
-      },
-      "id": "node-build-replace", "name": "Build Replace Requests",
-      "type": "n8n-nodes-base.function", "typeVersion": 1,
-      "position": [2960, 400]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "=https://docs.googleapis.com/v1/documents/{{ $json.copiedDocId }}:batchUpdate",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "googleDocsOAuth2Api",
-        "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
-        "sendBody": true, "contentType": "raw", "rawContentType": "application/json",
-        "body": "={{ $json.requestBody }}",
-        "options": { "timeout": 30000 }
-      },
-      "id": "node-apply-replacements", "name": "Apply Replacements to Copy",
-      "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2,
-      "position": [3200, 400],
-      "credentials": { "googleDocsOAuth2Api": { "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID", "name": "Google Docs account" } }
-    },
-    {
-      "parameters": {
-        "functionCode": "const items = $input.all();\nconst results = [];\nfor (const item of items) {\n  let prevData = {};\n  try { prevData = $('Parse AI Response').first().json; } catch(e) {}\n  let buildData = {};\n  try { buildData = $('Build Replace Requests').first().json; } catch(e) {}\n  const replacements = prevData.replacements || [];\n  const docId = buildData.copiedDocId || '';\n  const docUrl = docId ? 'https://docs.google.com/document/d/' + docId + '/edit' : 'URL unavailable';\n  const changes = replacements.map((r, i) => ({\n    change_number: i + 1,\n    original: r.find,\n    updated: r.replace,\n    keywords_added: r.replace.split(/[\\s,;]+/).filter(w => !r.find.toLowerCase().includes(w.toLowerCase()) && w.length > 2).join(', ')\n  }));\n  results.push({\n    json: {\n      status: 'success',\n      message: '✅ Optimized CV created!',\n      total_changes: changes.length,\n      documentUrl: docUrl,\n      documentId: docId,\n      changes: changes\n    }\n  });\n}\nreturn results;"
-      },
-      "id": "node-changes-summary", "name": "Changes Summary",
-      "type": "n8n-nodes-base.function", "typeVersion": 1,
-      "position": [3440, 400]
-    },
-    {
-      "parameters": {
-        "functionCode": "const items = $input.all();\nreturn items.map(item => ({ json: { status: 'error', message: '❌ Failed: ' + (item.json.error || 'Unknown error'), suggestion: 'Check GROQ_API_KEY and Google Docs link.' } }));"
-      },
-      "id": "node-error-output", "name": "Error Output",
-      "type": "n8n-nodes-base.function", "typeVersion": 1,
-      "position": [2720, 620]
+      "id": "node-respond-error",
+      "name": "Respond Webhook Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2400, 600]
     }
   ],
   "pinData": {},
   "connections": {
-    "CV Input Form": { "main": [[{ "node": "Extract Doc ID", "type": "main", "index": 0 }]] },
-    "Extract Doc ID": { "main": [[{ "node": "Read CV from Google Docs", "type": "main", "index": 0 }]] },
-    "Read CV from Google Docs": { "main": [[{ "node": "Extract CV Text", "type": "main", "index": 0 }]] },
-    "Extract CV Text": { "main": [[{ "node": "Build Keyword Extraction Prompt", "type": "main", "index": 0 }]] },
-    "Build Keyword Extraction Prompt": { "main": [[{ "node": "Qwen3 - Extract Keywords", "type": "main", "index": 0 }]] },
-    "Qwen3 - Extract Keywords": { "main": [[{ "node": "Parse Keywords", "type": "main", "index": 0 }]] },
-    "Parse Keywords": { "main": [[{ "node": "Build Replace Prompt", "type": "main", "index": 0 }]] },
-    "Build Replace Prompt": { "main": [[{ "node": "Llama3.3 - Generate Replacements", "type": "main", "index": 0 }]] },
-    "Llama3.3 - Generate Replacements": { "main": [[{ "node": "Parse AI Response", "type": "main", "index": 0 }]] },
-    "Parse AI Response": { "main": [[{ "node": "Check for Errors", "type": "main", "index": 0 }]] },
-    "Check for Errors": { "main": [[{ "node": "Copy Original CV", "type": "main", "index": 0 }], [{ "node": "Error Output", "type": "main", "index": 0 }]] },
-    "Copy Original CV": { "main": [[{ "node": "Build Replace Requests", "type": "main", "index": 0 }]] },
-    "Build Replace Requests": { "main": [[{ "node": "Apply Replacements to Copy", "type": "main", "index": 0 }]] },
-    "Apply Replacements to Copy": { "main": [[{ "node": "Changes Summary", "type": "main", "index": 0 }]] }
+    "CV Webhook Trigger": {
+      "main": [
+        [{ "node": "Validate Input", "type": "main", "index": 0 }]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [{ "node": "Build Stage 1 Prompt", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Stage 1 Prompt": {
+      "main": [
+        [{ "node": "Groq - AI Gap Analysis", "type": "main", "index": 0 }]
+      ]
+    },
+    "Groq - AI Gap Analysis": {
+      "main": [
+        [{ "node": "Parse Stage 1", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Stage 1": {
+      "main": [
+        [{ "node": "Build Stage 2 Prompt", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Stage 2 Prompt": {
+      "main": [
+        [{ "node": "Groq - AI CV Optimizer", "type": "main", "index": 0 }]
+      ]
+    },
+    "Groq - AI CV Optimizer": {
+      "main": [
+        [{ "node": "Format Multi-Output", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Multi-Output": {
+      "main": [
+        [{ "node": "Check Success", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Success": {
+      "main": [
+        [{ "node": "Respond Webhook Success", "type": "main", "index": 0 }],
+        [{ "node": "Respond Webhook Error", "type": "main", "index": 0 }]
+      ]
+    }
   },
   "active": false,
-  "settings": { "executionOrder": "v1" },
-  "versionId": "2",
-  "meta": { "instanceId": "cv-keyword-optimizer-v2" },
-  "tags": [{ "name": "CV" }, { "name": "AI" }]
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "3",
+  "meta": {
+    "instanceId": "cv-keyword-optimizer-v3"
+  },
+  "tags": [
+    { "name": "CV" },
+    { "name": "AI" },
+    { "name": "Groq" }
+  ]
 }

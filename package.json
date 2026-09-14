@@ -1,0 +1,13 @@
+{
+  "name": "cv-generator",
+  "version": "1.0.0",
+  "description": "AI-powered on-the-go CV optimizer",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch dev-server.ts",
+    "start": "bun dev-server.ts"
+  },
+  "dependencies": {
+    "docx": "^9.7.1"
+  }
+}

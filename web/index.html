@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CV Keyword Optimizer | Tailor Your CV On The Go</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <!-- Mammoth.js for client-side DOCX text extraction -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <!-- PDF.js for client-side PDF text extraction -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <!-- html2pdf.js for client-side direct PDF generation & download -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="header-content">
+        <div class="brand">
+          <div class="brand-badge">ATS Engine</div>
+          <h1>CV Optimizer</h1>
+          <p class="subtitle">Tailor your CV to any job description in seconds</p>
+        </div>
+        <button id="settingsToggleBtn" class="btn btn-ghost" title="Settings">
+          Configure Endpoint
+        </button>
+      </div>
+
+      <!-- Settings Drawer for Webhook Endpoint -->
+      <div id="settingsPanel" class="settings-panel hidden">
+        <div class="settings-card">
+          <label for="webhookUrlInput">n8n Webhook Endpoint</label>
+          <div class="input-with-hint">
+            <input 
+              type="url" 
+              id="webhookUrlInput" 
+              placeholder="https://your-space.hf.space/webhook/optimize-cv or http://localhost:5678/webhook/optimize-cv"
+              spellcheck="false"
+            />
+            <span class="hint">Points to your deployed Hugging Face Space or local n8n instance.</span>
+          </div>
+          <button id="saveSettingsBtn" class="btn btn-secondary btn-sm">Save Endpoint</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <!-- Input Section -->
+      <section id="inputSection" class="card input-card">
+        <div class="form-grid">
+          <!-- CV Input Column -->
+          <div class="form-column">
+            <div class="section-label">
+              <span class="step-num">1</span>
+              <h2>Source CV</h2>
+            </div>
+
+            <div class="tab-header">
+              <button class="tab-btn active" data-tab="uploadTab">Upload File</button>
+              <button class="tab-btn" data-tab="pasteTab">Paste Text</button>
+            </div>
+
+            <!-- Upload Tab -->
+            <div id="uploadTab" class="tab-content active">
+              <div class="dropzone" id="dropzone">
+                <input type="file" id="cvFileInput" accept=".pdf,.docx,.txt,.md" class="file-input-hidden">
+                <div class="dropzone-inner">
+                  <div class="dropzone-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="17 8 12 3 7 8"/>
+                      <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                  </div>
+                  <p class="dropzone-text"><strong>Choose a file</strong> or drag & drop</p>
+                  <p class="dropzone-sub">PDF, DOCX, TXT, or MD</p>
+                </div>
+              </div>
+              <div id="fileInfo" class="file-info hidden">
+                <span id="fileName" class="file-name"></span>
+                <button id="removeFileBtn" class="btn-inline-remove" title="Remove file">&times;</button>
+              </div>
+            </div>
+
+            <!-- Paste Tab -->
+            <div id="pasteTab" class="tab-content">
+              <textarea 
+                id="cvTextarea" 
+                class="form-textarea cv-textarea" 
+                placeholder="Paste your current CV / resume text here..."
+                rows="10"
+              ></textarea>
+            </div>
+
+            <div class="checkbox-row">
+              <input type="checkbox" id="rememberCvCheckbox" checked>
+              <label for="rememberCvCheckbox">Remember this CV on this device</label>
+            </div>
+          </div>
+
+          <!-- Job Description Column -->
+          <div class="form-column">
+            <div class="section-label">
+              <span class="step-num">2</span>
+              <h2>Job Details</h2>
+            </div>
+
+            <div class="field-group">
+              <label for="targetRoleInput">Target Role Title (Optional)</label>
+              <input 
+                type="text" 
+                id="targetRoleInput" 
+                class="form-input" 
+                placeholder="e.g. Senior Backend Engineer"
+              >
+            </div>
+
+            <div class="field-group flex-fill">
+              <label for="jdTextarea">Target Job Description <span class="required">*</span></label>
+              <textarea 
+                id="jdTextarea" 
+                class="form-textarea jd-textarea" 
+                placeholder="Paste the full job description or job posting text here..." 
+                rows="10" 
+                required
+              ></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="action-footer">
+          <div class="status-indicator" id="statusIndicator">
+            <span class="pulse-dot"></span>
+            <span id="statusText">Ready to optimize</span>
+          </div>
+          <button id="generateBtn" class="btn btn-primary btn-lg">
+            Optimize CV with AI
+          </button>
+        </div>
+      </section>
+
+      <!-- Processing State -->
+      <section id="processingSection" class="card processing-card hidden">
+        <div class="processing-content">
+          <div class="loader-spinner"></div>
+          <h3 id="processingStepTitle">Analyzing Job Description</h3>
+          <p id="processingStepDesc" class="processing-desc">Extracting critical ATS keywords and competencies...</p>
+          <div class="progress-track">
+            <div id="progressBar" class="progress-bar"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Results Section -->
+      <section id="resultsSection" class="card results-card hidden">
+        <!-- Results Header & Download Controls -->
+        <div class="results-header">
+          <div class="results-meta">
+            <div class="match-score-badge">
+              <span class="score-label">Projected ATS Score</span>
+              <span id="scoreValue" class="score-val">94%</span>
+            </div>
+            <div>
+              <h2 id="resultRoleTitle">Optimized CV</h2>
+              <p class="results-sub" id="resultMetrics">14 keywords woven &bull; 8 bullets restructured</p>
+            </div>
+          </div>
+
+          <div class="export-actions">
+            <div class="download-dropdown-wrapper">
+              <button id="downloadDropdownBtn" class="btn btn-primary">
+                Download CV
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+              <div id="downloadMenu" class="download-menu hidden">
+                <button class="menu-item" id="downloadPdfBtn">
+                  <span class="format-tag">PDF</span>
+                  <span class="format-desc">Print-ready standard ATS document</span>
+                </button>
+                <button class="menu-item" id="downloadDocxBtn">
+                  <span class="format-tag">DOCX</span>
+                  <span class="format-desc">Microsoft Word format</span>
+                </button>
+                <button class="menu-item" id="downloadMdBtn">
+                  <span class="format-tag">MD</span>
+                  <span class="format-desc">Markdown format</span>
+                </button>
+                <button class="menu-item" id="downloadTxtBtn">
+                  <span class="format-tag">TXT</span>
+                  <span class="format-desc">Plain unformatted text</span>
+                </button>
+              </div>
+            </div>
+            <button id="editToggleBtn" class="btn btn-secondary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+              <span>Edit CV</span>
+            </button>
+            <button id="copyClipboardBtn" class="btn btn-secondary">Copy Text</button>
+            <button id="newCvBtn" class="btn btn-ghost">Start Over</button>
+          </div>
+        </div>
+
+        <!-- View Tabs: Preview vs Diff -->
+        <div class="results-tabs">
+          <button class="res-tab active" data-res-tab="previewPanel">Formatted Preview</button>
+          <button class="res-tab" data-res-tab="changesPanel">Bullet Enhancements (<span id="changesCount">0</span>)</button>
+          <button class="res-tab" data-res-tab="keywordsPanel">Matched Keywords (<span id="keywordsCount">0</span>)</button>
+        </div>
+
+        <!-- Tab 1: Formatted Document Preview -->
+        <div id="previewPanel" class="res-panel active">
+          <div id="editNoticeBanner" class="edit-notice-banner hidden">
+            <div class="banner-text">
+              <span class="banner-badge">Editing Mode</span>
+              <span>Click anywhere inside the document to modify text or delete bullets. Downloads will contain your edited version.</span>
+            </div>
+            <div class="banner-actions">
+              <button id="discardEditsBtn" class="btn btn-ghost btn-sm">Reset</button>
+              <button id="saveEditsBtn" class="btn btn-primary btn-sm">Done Editing</button>
+            </div>
+          </div>
+          <div class="document-paper" id="documentPaper">
+            <!-- Rendered HTML CV injected here -->
+          </div>
+        </div>
+
+        <!-- Tab 2: Diff / Enhancements Log -->
+        <div id="changesPanel" class="res-panel">
+          <div id="changesList" class="changes-list">
+            <!-- Injected dynamically -->
+          </div>
+        </div>
+
+        <!-- Tab 3: Keywords List -->
+        <div id="keywordsPanel" class="res-panel">
+          <div id="keywordsTags" class="keywords-tags">
+            <!-- Injected dynamically -->
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <p>CV Keyword Optimizer &bull; Client-side security with zero data retention</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
