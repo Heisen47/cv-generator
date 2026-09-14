@@ -8,6 +8,7 @@
     "start": "bun dev-server.ts"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "docx": "^9.7.1"
   }
 }

@@ -86,6 +86,13 @@ const server = Bun.serve({
       }
     }
 
+    // Vercel Insights local stub (no-op in local dev)
+    if (url.pathname.startsWith('/_vercel/insights')) {
+      return new Response('/* Vercel analytics local dev stub */', {
+        headers: { 'Content-Type': 'application/javascript' }
+      });
+    }
+
     // Serve Static Files from /web
     let filePath = url.pathname === '/' ? '/index.html' : url.pathname;
     let target = join(WEB_DIR, filePath);
