@@ -6,6 +6,10 @@
       "destination": "/api/$1"
     },
     {
+      "source": "/_vercel/(.*)",
+      "destination": "/_vercel/$1"
+    },
+    {
       "source": "/(.*)",
       "destination": "/web/$1"
     }

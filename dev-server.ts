@@ -86,10 +86,23 @@ const server = Bun.serve({
       }
     }
 
-    // Vercel Insights local stub (no-op in local dev)
+    // Vercel Insights local dev support (loads official Vercel debug analytics script)
+    if (url.pathname === '/_vercel/insights/script.js') {
+      try {
+        const resp = await fetch('https://va.vercel-scripts.com/v1/script.debug.js');
+        const debugScript = await resp.text();
+        return new Response(debugScript, {
+          headers: { 'Content-Type': 'application/javascript' }
+        });
+      } catch (e) {
+        return new Response('/* Vercel analytics debug fallback */', {
+          headers: { 'Content-Type': 'application/javascript' }
+        });
+      }
+    }
     if (url.pathname.startsWith('/_vercel/insights')) {
-      return new Response('/* Vercel analytics local dev stub */', {
-        headers: { 'Content-Type': 'application/javascript' }
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { 'Content-Type': 'application/json' }
       });
     }
 
