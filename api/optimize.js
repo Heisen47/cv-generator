@@ -149,6 +149,8 @@ Return strictly valid JSON with this schema (no conversational text):
   "strategic_advice": "1-2 sentence core positioning strategy"
 }`;
 
+  const stage1UserMsg = `CANDIDATE CV:\n${cvText}\n\nTARGET JOB DESCRIPTION:\n${jobDescription}\n\nTARGET ROLE HINT: ${targetRole || 'Best fit'}`;
+
   const stage1Result = await callGroq(apiKey, stage1SystemPrompt, stage1UserMsg, 0.2, 1800, process.env.GROQ_STAGE1_MODEL || 'openai/gpt-oss-120b');
 
   const keywords = [
